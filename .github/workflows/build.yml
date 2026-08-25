@@ -31,12 +31,17 @@ jobs:
 
       - name: Install Python Dependencies
         run: |
-          pip install --upgrade pip
-          pip install flet-cli==0.86.5
+          python -m pip install --upgrade pip
+          pip install flet
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Accept Android Licenses
+        run: |
+          yes | sdkmanager --licenses || true
 
       - name: Build APK
         run: |
-          flet build apk --project "OptibookMobile" --org "com.optibook" --product "Optibook-IMS"
+          yes | flet build apk --project "OptibookMobile" --org "com.optibook" --product "Optibook-IMS" -v
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
