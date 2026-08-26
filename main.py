@@ -5,24 +5,66 @@ from datetime import datetime, timedelta
 import flet as ft
 from db_manager import db_service
 from auth_manager import load_saved_login, save_login_state, authenticate
+from update_manager import CURRENT_APP_VERSION, check_for_updates, open_download_link
 
 def main(page: ft.Page):
     page.title = "Optibook-IMS Mobile"
     page.theme_mode = ft.ThemeMode.LIGHT
-    page.padding = 10
+    page.padding = 0  # SafeArea 내부에서 여백 제어
     page.window_width = 430
     page.window_height = 820
 
     current_user = {"info": None}
     active_tab = [0]  # 0: 검수, 1: 목록, 2: 내역, 3: 집계
     selected_isbns = set()
-    is_exporting = [False]  # 엑셀 추출 중복 클릭 방지 플래그
+    is_exporting = [False]
 
     network_icon = ft.Icon(icon=ft.Icons.WIFI, color="#2E7D32")
     user_label = ft.Text("", size=12, color="#FFFFFF")
 
     # ==========================================
-    # 공통: 엑셀 내보내기 및 3중 피드백
+    # 업데이트 체크 다이얼로그
+    # ==========================================
+    def run_version_check():
+        has_update, latest_ver, down_url = check_for_updates()
+        if has_update and down_url:
+            def start_update(e):
+                open_download_link(down_url)
+                update_dialog.open = False
+                page.update()
+
+            def close_update(e):
+                update_dialog.open = False
+                page.update()
+
+            update_dialog = ft.AlertDialog(
+                title=ft.Row([
+                    ft.Icon(icon=ft.Icons.SYSTEM_UPDATE, color="#1565C0"),
+                    ft.Text("새 버전 업데이트", weight=ft.FontWeight.BOLD)
+                ]),
+                content=ft.Column([
+                    ft.Text(f"새로운 버전({latest_ver})이 출시되었습니다.", weight=ft.FontWeight.BOLD),
+                    ft.Text(f"현재 버전: {CURRENT_APP_VERSION}", size=12, color="#757575"),
+                    ft.Text("안정적인 검수 작업을 위해 최신 버전으로 업데이트하세요.", size=12, color="#555555")
+                ], spacing=6, tight=True),
+                actions=[
+                    ft.Container(
+                        content=ft.Text("지금 다운로드", color="#FFFFFF", size=13, weight=ft.FontWeight.BOLD),
+                        bgcolor="#1565C0",
+                        padding=ft.Padding(12, 6, 12, 6),
+                        border_radius=4,
+                        ink=True,
+                        on_click=start_update
+                    ),
+                    ft.TextButton(content=ft.Text("나중에"), on_click=close_update)
+                ]
+            )
+            page.dialog = update_dialog
+            update_dialog.open = True
+            page.update()
+
+    # ==========================================
+    # 공통: 엑셀 내보내기 처리
     # ==========================================
     def execute_excel_export(target_books: list, vendor_label: str, trigger_btn_text: ft.Text = None):
         if is_exporting[0]:
@@ -52,12 +94,10 @@ def main(page: ft.Page):
             page.update()
             return
 
-        # 엑셀 파일 생성
         file_path = db_service.export_books_to_excel(target_books, vendor_label)
         file_name = os.path.basename(file_path)
         intake_count = len([b for b in target_books if b.get('상태') == '입고'])
 
-        # 버튼 완료 피드백
         if trigger_btn_text:
             trigger_btn_text.value = "✅ 저장 완료!"
             page.update()
@@ -74,7 +114,6 @@ def main(page: ft.Page):
             alert_success.open = False
             page.update()
 
-        # 1. 화면 중앙 팝업 다이얼로그
         alert_success = ft.AlertDialog(
             title=ft.Text("✅ 엑셀 내보내기 완료", weight=ft.FontWeight.BOLD, color="#2E7D32"),
             content=ft.Column([
@@ -98,7 +137,6 @@ def main(page: ft.Page):
         page.dialog = alert_success
         alert_success.open = True
 
-        # 2. 하단 스낵바 알림 동시 출력
         page.snack_bar = ft.SnackBar(
             content=ft.Text(f"엑셀 저장 완료: {file_name} ({len(target_books)}건)"),
             bgcolor="#2E7D32",
@@ -107,7 +145,6 @@ def main(page: ft.Page):
         page.snack_bar.open = True
         page.update()
 
-        # 2초 후 플래그 및 버튼 텍스트 원상복구
         def reset_btn():
             time.sleep(2)
             is_exporting[0] = False
@@ -591,9 +628,9 @@ def main(page: ft.Page):
         ], expand=True, spacing=10)
 
     # ==========================================
-    # 화면 전환 및 4개 하단 네비게이션
+    # 스마트폰 하단 바 겹침 해결: SafeArea + BottomNavBar 여백 보강
     # ==========================================
-    content_area = ft.Container(expand=True)
+    content_area = ft.Container(expand=True, padding=ft.Padding(10, 5, 10, 0))
 
     def make_nav_item(idx, icon_name, label_text):
         is_active = (active_tab[0] == idx)
@@ -601,7 +638,7 @@ def main(page: ft.Page):
         return ft.Container(
             content=ft.Column(
                 controls=[
-                    ft.Icon(icon=icon_name, size=20, color=active_color),
+                    ft.Icon(icon=icon_name, size=22, color=active_color),
                     ft.Text(label_text, size=11, weight=ft.FontWeight.BOLD if is_active else ft.FontWeight.NORMAL, color=active_color)
                 ],
                 alignment=ft.MainAxisAlignment.CENTER,
@@ -610,11 +647,12 @@ def main(page: ft.Page):
             ),
             alignment=ft.Alignment(0, 0),
             expand=True,
-            padding=ft.Padding(0, 4, 0, 4),
+            padding=ft.Padding(0, 2, 0, 0),
             ink=True,
             on_click=lambda e: switch_tab(idx)
         )
 
+    # 하단 바 높이(65) 및 시스템 바 여백(10) 보강
     bottom_nav_bar = ft.Container(
         content=ft.Row([
             make_nav_item(0, ft.Icons.QR_CODE_SCANNER, "검수"),
@@ -623,7 +661,8 @@ def main(page: ft.Page):
             make_nav_item(3, ft.Icons.ANALYTICS, "집계"),
         ], alignment=ft.MainAxisAlignment.SPACE_AROUND),
         bgcolor="#FFFFFF",
-        height=55
+        height=65,
+        padding=ft.Padding(0, 0, 0, 10)
     )
 
     def update_bottom_bar():
@@ -679,14 +718,21 @@ def main(page: ft.Page):
             ]
         )
 
+        # SafeArea로 전체 화면 감싸기
         page.add(
-            ft.Column([
-                content_area,
-                ft.Divider(height=1, color="#E0E0E0"),
-                bottom_nav_bar
-            ], expand=True, spacing=0)
+            ft.SafeArea(
+                content=ft.Column([
+                    content_area,
+                    ft.Divider(height=1, color="#E0E0E0"),
+                    bottom_nav_bar
+                ], expand=True, spacing=0),
+                expand=True
+            )
         )
         switch_tab(0)
+
+        # 백그라운드에서 GitHub 새 버전 여부 자동 검사
+        threading.Thread(target=run_version_check, daemon=True).start()
 
     # ==========================================
     # 로그인 화면
@@ -728,17 +774,20 @@ def main(page: ft.Page):
 
     page.appbar = ft.AppBar(title=ft.Text("Optibook-IMS 로그인"), bgcolor="#1565C0", color="#FFFFFF", center_title=True)
     page.add(
-        ft.Column([
-            ft.Container(height=20),
-            ft.Icon(icon=ft.Icons.MENU_BOOK, size=64, color="#1565C0"),
-            ft.Text("Optibook-IMS Mobile", size=22, weight=ft.FontWeight.BOLD),
-            ft.Container(height=10),
-            id_input,
-            pw_input,
-            remember_chk,
-            error_msg,
-            login_btn
-        ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=12)
+        ft.SafeArea(
+            content=ft.Column([
+                ft.Container(height=20),
+                ft.Icon(icon=ft.Icons.MENU_BOOK, size=64, color="#1565C0"),
+                ft.Text("Optibook-IMS Mobile", size=22, weight=ft.FontWeight.BOLD),
+                ft.Container(height=10),
+                id_input,
+                pw_input,
+                remember_chk,
+                error_msg,
+                login_btn
+            ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=12),
+            expand=True
+        )
     )
     page.update()
 
