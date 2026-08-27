@@ -43,4 +43,3 @@ def open_download_link(url: str):
         webbrowser.open(url)
     except Exception:
         pass
-
