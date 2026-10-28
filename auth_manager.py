@@ -19,49 +19,50 @@ DEFAULT_OFFLINE_USERS = {
 }
 
 def encode_pw(password: str) -> str:
-    """Base64 비밀번호 암호화"""
     return base64.b64encode(password.encode("utf-8")).decode("utf-8")
 
 def decode_pw(encoded_pw: str) -> str:
-    """Base64 비밀번호 복호화"""
     try:
         return base64.b64decode(encoded_pw.encode("utf-8")).decode("utf-8")
     except Exception:
         return ""
 
 def load_saved_login():
-    """자동 로그인용 저장된 계정 정보 로드"""
     if os.path.exists(LOGIN_STATE_FILE):
         try:
             with open(LOGIN_STATE_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                return data.get("saved_id", ""), decode_pw(data.get("saved_pw", ""))
+                return str(data.get("saved_id", "")), decode_pw(str(data.get("saved_pw", "")))
         except Exception:
             pass
     return "", ""
 
 def save_login_state(user_id: str, password: str, remember: bool):
-    """로그인 상태 저장 (체크 해제 시 파일 삭제)"""
-    if remember:
-        payload = {
-            "saved_id": user_id,
-            "saved_pw": encode_pw(password)
-        }
-        with open(LOGIN_STATE_FILE, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=4)
-    else:
-        if os.path.exists(LOGIN_STATE_FILE):
-            os.remove(LOGIN_STATE_FILE)
+    try:
+        if remember:
+            payload = {
+                "saved_id": user_id,
+                "saved_pw": encode_pw(password)
+            }
+            with open(LOGIN_STATE_FILE, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=4)
+        else:
+            if os.path.exists(LOGIN_STATE_FILE):
+                os.remove(LOGIN_STATE_FILE)
+    except Exception:
+        pass
 
 def load_offline_users():
-    """오프라인 캐시 사용자 목록 불러오기"""
+    users = dict(DEFAULT_OFFLINE_USERS)
     if os.path.exists(OFFLINE_AUTH_FILE):
         try:
             with open(OFFLINE_AUTH_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                cached = json.load(f)
+                if isinstance(cached, dict):
+                    users.update(cached)
         except Exception:
             pass
-    return DEFAULT_OFFLINE_USERS
+    return users
 
 def authenticate(user_id: str, password: str):
     """
@@ -75,24 +76,28 @@ def authenticate(user_id: str, password: str):
                 query = "SELECT user_id, user_pw, user_name, role, company_id, status FROM users WHERE user_id = %s LIMIT 1"
                 cur.execute(query, (user_id,))
                 user = cur.fetchone()
-                if user and user["user_pw"] == password:
+                if user and str(user.get("user_pw", "")) == password:
                     if user.get("status") == "APPROVED":
-                        # 최신 인증 정보 로컬 캐시에 동기화
                         users_cache = load_offline_users()
                         users_cache[user_id] = user
-                        with open(OFFLINE_AUTH_FILE, "w", encoding="utf-8") as f:
-                            json.dump(users_cache, f, ensure_ascii=False, indent=4)
+                        try:
+                            with open(OFFLINE_AUTH_FILE, "w", encoding="utf-8") as f:
+                                json.dump(users_cache, f, ensure_ascii=False, indent=4)
+                        except Exception:
+                            pass
                         return True, user, True
         except Exception:
             pass
         finally:
-            conn.close()
+            try:
+                conn.close()
+            except Exception:
+                pass
 
-    # 오프라인 인증 분기
     offline_users = load_offline_users()
     if user_id in offline_users:
         user = offline_users[user_id]
-        if user.get("user_pw") == password and user.get("status") == "APPROVED":
+        if str(user.get("user_pw", "")) == password and user.get("status") == "APPROVED":
             return True, user, False
 
     return False, None, False
