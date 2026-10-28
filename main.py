@@ -1,6 +1,7 @@
 import os
 import time
 import threading
+import traceback
 from datetime import datetime, timedelta
 import flet as ft
 from db_manager import db_service, make_row_key, safe_int, format_seq_chunk_label
@@ -11,13 +12,26 @@ from update_manager import CURRENT_APP_VERSION, check_for_updates, open_download
 ICONS = getattr(ft, "Icons", getattr(ft, "icons", None))
 TEXT_OVERFLOW_ELLIPSIS = getattr(getattr(ft, "TextOverflow", None), "ELLIPSIS", "ellipsis")
 
+def get_icon(name: str):
+    """아이콘 속성명이 버전에 따라 없더라도 앱이 죽지 않도록 안전하게 반환"""
+    if ICONS and hasattr(ICONS, name):
+        return getattr(ICONS, name)
+    return name.lower()
+
 def pad(left=0, top=0, right=0, bottom=0):
-    if hasattr(ft, "padding") and hasattr(ft.padding, "only"):
-        return ft.padding.only(left=left, top=top, right=right, bottom=bottom)
+    try:
+        if hasattr(ft, "padding") and hasattr(ft.padding, "only"):
+            return ft.padding.only(left=left, top=top, right=right, bottom=bottom)
+    except Exception:
+        pass
     return ft.Padding(left, top, right, bottom)
 
 def safe_border_all(width: float = 1.0, color: str = "#E0E0E0"):
-    """모바일 환경에서 ft.border.all 부재로 인한 크래시 방지 테두리 생성기"""
+    try:
+        if hasattr(ft, "border") and hasattr(ft.border, "all") and callable(ft.border.all):
+            return ft.border.all(width, color)
+    except Exception:
+        pass
     try:
         border_cls = getattr(ft, "Border", getattr(getattr(ft, "border", None), "Border", None))
         side_cls = getattr(ft, "BorderSide", getattr(getattr(ft, "border", None), "BorderSide", None))
@@ -26,15 +40,16 @@ def safe_border_all(width: float = 1.0, color: str = "#E0E0E0"):
             return border_cls(top=side, right=side, bottom=side, left=side)
     except Exception:
         pass
-    try:
-        if hasattr(ft, "border") and hasattr(ft.border, "all") and callable(ft.border.all):
-            return ft.border.all(width, color)
-    except Exception:
-        pass
     return None
 
 def safe_border_top(width: float = 1.0, color: str = "#E0E0E0"):
-    """하단 내비게이션 바 상단 구분선 생성기"""
+    try:
+        if hasattr(ft, "border") and hasattr(ft.border, "only") and callable(ft.border.only):
+            side_cls = getattr(ft, "BorderSide", getattr(getattr(ft, "border", None), "BorderSide", None))
+            if side_cls:
+                return ft.border.only(top=side_cls(width=width, color=color))
+    except Exception:
+        pass
     try:
         border_cls = getattr(ft, "Border", getattr(getattr(ft, "border", None), "Border", None))
         side_cls = getattr(ft, "BorderSide", getattr(getattr(ft, "border", None), "BorderSide", None))
@@ -43,14 +58,23 @@ def safe_border_top(width: float = 1.0, color: str = "#E0E0E0"):
             return border_cls(top=side)
     except Exception:
         pass
-    try:
-        if hasattr(ft, "border") and hasattr(ft.border, "only") and callable(ft.border.only):
-            side_cls = getattr(ft, "BorderSide", getattr(getattr(ft, "border", None), "BorderSide", None))
-            if side_cls:
-                return ft.border.only(top=side_cls(width=width, color=color))
-    except Exception:
-        pass
     return None
+
+def make_dropdown(label: str, value: str, options_list: list, on_change=None, width=None):
+    """Flet 구버전/신버전 Dropdown 파라미터 호환 래퍼"""
+    opts = [ft.dropdown.Option(o) for o in options_list]
+    dd = ft.Dropdown(label=label, value=value, options=opts, width=width)
+    if on_change is not None:
+        try:
+            dd.on_change = on_change
+        except Exception:
+            pass
+        try:
+            if hasattr(dd, "on_select"):
+                dd.on_select = on_change
+        except Exception:
+            pass
+    return dd
 
 def main(page: ft.Page):
     page.title = "Optibook-IMS Mobile"
@@ -65,8 +89,8 @@ def main(page: ft.Page):
     is_exporting = [False]
     list_display_limit = [100]
 
-    network_icon = ft.Icon(icon=ICONS.WIFI, color="#A5D6A7", size=20)
-    user_label = ft.Text("", size=12, color="#FFFFFF", weight=ft.FontWeight.BOLD)
+    network_icon = ft.Icon(icon=get_icon("WIFI"), color="#A5D6A7", size=18)
+    user_label = ft.Text("", size=11, color="#FFFFFF", weight=ft.FontWeight.BOLD)
 
     # ==========================================
     # 공통 다이얼로그 / 스낵바 호환 헬퍼
@@ -83,9 +107,12 @@ def main(page: ft.Page):
                 return
         except Exception:
             pass
-        page.snack_bar = snack
-        snack.open = True
-        page.update()
+        try:
+            page.snack_bar = snack
+            snack.open = True
+            page.update()
+        except Exception:
+            pass
 
     def open_modal(dlg: ft.AlertDialog):
         try:
@@ -94,9 +121,12 @@ def main(page: ft.Page):
                 return
         except Exception:
             pass
-        page.dialog = dlg
-        dlg.open = True
-        page.update()
+        try:
+            page.dialog = dlg
+            dlg.open = True
+            page.update()
+        except Exception:
+            pass
 
     def close_modal(dlg: ft.AlertDialog):
         try:
@@ -105,59 +135,65 @@ def main(page: ft.Page):
                 return
         except Exception:
             pass
-        dlg.open = False
-        page.update()
+        try:
+            dlg.open = False
+            page.update()
+        except Exception:
+            pass
 
     def update_network_badge(is_online: bool):
         pending_cnt = db_service.get_pending_sync_count()
         if is_online and pending_cnt == 0:
-            network_icon.icon = ICONS.WIFI
+            network_icon.icon = get_icon("WIFI")
             network_icon.color = "#A5D6A7"
         elif is_online and pending_cnt > 0:
-            network_icon.icon = ICONS.CLOUD_UPLOAD
+            network_icon.icon = get_icon("CLOUD_UPLOAD")
             network_icon.color = "#FFF59D"
         else:
-            network_icon.icon = ICONS.WIFI_OFF
+            network_icon.icon = get_icon("WIFI_OFF")
             network_icon.color = "#EF9A9A"
 
     # ==========================================
     # GitHub 최신 버전 자동 체크
     # ==========================================
     def run_version_check():
-        has_update, latest_ver, down_url = check_for_updates()
-        if has_update and down_url:
-            def start_update(e):
-                close_modal(update_dialog)
-                open_download_link(down_url, page)
+        try:
+            has_update, latest_ver, down_url = check_for_updates()
+            if has_update and down_url:
+                def start_update(e):
+                    close_modal(update_dialog)
+                    open_download_link(down_url, page)
 
-            update_dialog = ft.AlertDialog(
-                title=ft.Row([
-                    ft.Icon(icon=ICONS.SYSTEM_UPDATE, color="#1565C0"),
-                    ft.Text("새 버전 업데이트 알림", size=16, weight=ft.FontWeight.BOLD)
-                ]),
-                content=ft.Column([
-                    ft.Text(f"최신 버전({latest_ver})이 출시되었습니다.", weight=ft.FontWeight.BOLD),
-                    ft.Text(f"현재 설치 버전: {CURRENT_APP_VERSION}", size=12, color="#757575"),
-                    ft.Text("아래 버튼을 누르면 최신 APK 다운로드 페이지로 연결됩니다.", size=12, color="#444444")
-                ], spacing=6, tight=True),
-                actions=[
-                    ft.Container(
-                        content=ft.Text("지금 다운로드", color="#FFFFFF", size=13, weight=ft.FontWeight.BOLD),
-                        bgcolor="#1565C0",
-                        padding=pad(12, 8, 12, 8),
-                        border_radius=6,
-                        ink=True,
-                        on_click=start_update
-                    ),
-                    ft.Container(
-                        content=ft.Text("나중에", color="#555555", size=13),
-                        padding=pad(10, 8, 10, 8),
-                        ink=True,
-                        on_click=lambda e: close_modal(update_dialog)
-                    )
-                ]
-            )
-            open_modal(update_dialog)
+                update_dialog = ft.AlertDialog(
+                    title=ft.Row([
+                        ft.Icon(icon=get_icon("SYSTEM_UPDATE"), color="#1565C0"),
+                        ft.Text("새 버전 업데이트 알림", size=16, weight=ft.FontWeight.BOLD)
+                    ]),
+                    content=ft.Column([
+                        ft.Text(f"최신 버전({latest_ver})이 출시되었습니다.", weight=ft.FontWeight.BOLD),
+                        ft.Text(f"현재 설치 버전: {CURRENT_APP_VERSION}", size=12, color="#757575"),
+                        ft.Text("아래 버튼을 누르면 최신 APK 다운로드 페이지로 연결됩니다.", size=12, color="#444444")
+                    ], spacing=6, tight=True),
+                    actions=[
+                        ft.Container(
+                            content=ft.Text("지금 다운로드", color="#FFFFFF", size=13, weight=ft.FontWeight.BOLD),
+                            bgcolor="#1565C0",
+                            padding=pad(12, 8, 12, 8),
+                            border_radius=6,
+                            ink=True,
+                            on_click=start_update
+                        ),
+                        ft.Container(
+                            content=ft.Text("나중에", color="#555555", size=13),
+                            padding=pad(10, 8, 10, 8),
+                            ink=True,
+                            on_click=lambda e: close_modal(update_dialog)
+                        )
+                    ]
+                )
+                open_modal(update_dialog)
+        except Exception:
+            pass
 
     # ==========================================
     # 공통: 엑셀 내보내기 처리
@@ -251,12 +287,12 @@ def main(page: ft.Page):
     # ==========================================
     # 탭 1: 현장 검수 화면
     # ==========================================
-    inspect_vendor_filter = ft.Dropdown(label="작업 납품처", expand=True, value="전체")
-    inspect_range_filter = ft.Dropdown(label="순번 구간(1000권)", width=145, value="전체 구간")
+    inspect_vendor_filter = make_dropdown("작업 납품처", "전체", ["전체"])
+    inspect_range_filter = make_dropdown("순번 구간(1000권)", "전체 구간", ["전체 구간"], width=145)
     inspect_progress_text = ft.Text("진행률: 0 / 0권 (0.0%)", size=12, weight=ft.FontWeight.BOLD, color="#1565C0")
     inspect_progress_bar = ft.ProgressBar(value=0, color="#2E7D32", bgcolor="#E0E0E0", height=8)
 
-    scan_result_title = ft.Text("바코드 또는 ISBN 끝 4자리를 입력하세요", size=16, weight=ft.FontWeight.BOLD, color="#222222")
+    scan_result_title = ft.Text("바코드 또는 ISBN 끝 4자리를 입력하세요", size=15, weight=ft.FontWeight.BOLD, color="#222222")
     scan_result_info = ft.Text("1,000권 단위 구간을 선택해 박스별 입고율을 확인할 수 있습니다.", size=12, color="#555555")
     scan_badge_text = ft.Text("대기 중", color="#FFFFFF", size=12, weight=ft.FontWeight.BOLD)
     scan_badge = ft.Container(
@@ -445,7 +481,10 @@ def main(page: ft.Page):
         refresh_inspect_progress()
 
         return ft.Column([
-            ft.Row([inspect_vendor_filter, inspect_range_filter], spacing=8),
+            ft.Row([
+                ft.Container(content=inspect_vendor_filter, expand=True),
+                inspect_range_filter
+            ], spacing=8),
             ft.Container(
                 content=ft.Column([inspect_progress_text, inspect_progress_bar], spacing=4),
                 padding=pad(4, 0, 4, 2)
@@ -476,14 +515,10 @@ def main(page: ft.Page):
         expand=True,
         on_submit=lambda e: (list_display_limit.__setitem__(0, 100), render_book_list())
     )
-    list_vendor_dropdown = ft.Dropdown(label="납품처", expand=True, value="전체")
-    list_range_dropdown = ft.Dropdown(label="순번 구간(1000권)", width=135, value="전체 구간")
-    list_status_dropdown = ft.Dropdown(
-        label="상태",
-        width=95,
-        value="전체",
-        options=[ft.dropdown.Option("전체"), ft.dropdown.Option("입고"), ft.dropdown.Option("미입고")]
-    )
+    list_vendor_dropdown = make_dropdown("납품처", "전체", ["전체"])
+    list_range_dropdown = make_dropdown("순번 구간(1000권)", "전체 구간", ["전체 구간"], width=130)
+    list_status_dropdown = make_dropdown("상태", "전체", ["전체", "입고", "미입고"], width=90)
+
     list_chunk_rate_text = ft.Text("", size=12, weight=ft.FontWeight.BOLD, color="#1565C0")
     list_chunk_rate_bar = ft.ProgressBar(value=0, color="#2E7D32", bgcolor="#BBDEFB", height=6)
 
@@ -521,7 +556,7 @@ def main(page: ft.Page):
 
     btn_export_excel = ft.Container(
         content=ft.Row([
-            ft.Icon(icon=ICONS.FILE_DOWNLOAD, color="#FFFFFF", size=16),
+            ft.Icon(icon=get_icon("FILE_DOWNLOAD"), color="#FFFFFF", size=16),
             btn_export_text
         ], alignment=ft.MainAxisAlignment.CENTER, spacing=4),
         bgcolor="#2E7D32",
@@ -694,7 +729,11 @@ def main(page: ft.Page):
         refresh_list_range_options()
 
         return ft.Column([
-            ft.Row([list_vendor_dropdown, list_range_dropdown, list_status_dropdown], spacing=6),
+            ft.Row([
+                ft.Container(content=list_vendor_dropdown, expand=True),
+                list_range_dropdown,
+                list_status_dropdown
+            ], spacing=6),
             ft.Container(
                 content=ft.Column([list_chunk_rate_text, list_chunk_rate_bar], spacing=4),
                 padding=pad(10, 6, 10, 6),
@@ -704,7 +743,7 @@ def main(page: ft.Page):
             ft.Row([
                 list_search_field,
                 ft.Container(
-                    content=ft.Icon(icon=ICONS.SEARCH, color="#FFFFFF"),
+                    content=ft.Icon(icon=get_icon("SEARCH"), color="#FFFFFF"),
                     bgcolor="#1565C0",
                     padding=12,
                     border_radius=8,
@@ -810,7 +849,7 @@ def main(page: ft.Page):
                     on_click=lambda e: render_history_list((datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d"))
                 ),
                 ft.Container(
-                    content=ft.Icon(icon=ICONS.SEARCH, color="#FFFFFF"),
+                    content=ft.Icon(icon=get_icon("SEARCH"), color="#FFFFFF"),
                     bgcolor="#2E7D32",
                     padding=10,
                     border_radius=6,
@@ -828,7 +867,7 @@ def main(page: ft.Page):
         ], expand=True, spacing=8)
 
     # ==========================================
-    # 탭 4: 집계 화면 (구간별 입고율 대시보드 + 납품처별 현황)
+    # 탭 4: 집계 화면 (1,000권 단위 구간별 입고율 대시보드 + 납품처별 현황)
     # ==========================================
     def navigate_to_filtered_list(vendor="전체", status="전체", seq_range="전체 구간"):
         selected_row_keys.clear()
@@ -841,7 +880,7 @@ def main(page: ft.Page):
         list_search_field.value = ""
         switch_tab(1)
 
-    summary_chunk_vendor_dropdown = ft.Dropdown(label="1,000권 구간 조회 대상 납품처", expand=True, value="전체")
+    summary_chunk_vendor_dropdown = make_dropdown("1,000권 구간 조회 대상 납품처", "전체", ["전체"])
     summary_scroll_view = ft.ListView(expand=True, spacing=8)
 
     def on_summary_chunk_vendor_change(e):
@@ -875,7 +914,7 @@ def main(page: ft.Page):
                         ft.Text(f"전체 납품 총괄 ({total_rate}%)", size=15, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
                         ft.Container(
                             content=ft.Row([
-                                ft.Icon(icon=ICONS.FILE_DOWNLOAD, color="#FFFFFF", size=14),
+                                ft.Icon(icon=get_icon("FILE_DOWNLOAD"), color="#FFFFFF", size=14),
                                 ft.Text("전체 엑셀", color="#FFFFFF", size=11, weight=ft.FontWeight.BOLD)
                             ], spacing=4),
                             bgcolor="#2E7D32",
@@ -923,13 +962,13 @@ def main(page: ft.Page):
             ft.Container(
                 content=ft.Column([
                     ft.Row([
-                        ft.Icon(icon=ICONS.VIEW_TIMELINE, color="#1565C0", size=18),
+                        ft.Icon(icon=get_icon("ANALYTICS"), color="#1565C0", size=18),
                         ft.Text(
                             f"1,000권 단위 순번 구간별 입고율 ({len(chunks)}개 구간)",
                             size=14, weight=ft.FontWeight.BOLD, color="#1565C0"
                         )
                     ], spacing=6),
-                    ft.Row([summary_chunk_vendor_dropdown])
+                    ft.Row([ft.Container(content=summary_chunk_vendor_dropdown, expand=True)])
                 ], spacing=6),
                 padding=pad(4, 6, 4, 2)
             )
@@ -978,7 +1017,7 @@ def main(page: ft.Page):
                                 ),
                                 ft.Container(
                                     content=ft.Row([
-                                        ft.Icon(icon=ICONS.FILE_DOWNLOAD, color="#1565C0", size=13),
+                                        ft.Icon(icon=get_icon("FILE_DOWNLOAD"), color="#1565C0", size=13),
                                         ft.Text("구간엑셀", color="#1565C0", size=11, weight=ft.FontWeight.BOLD)
                                     ], spacing=2),
                                     bgcolor="#E3F2FD",
@@ -1044,7 +1083,7 @@ def main(page: ft.Page):
                         ft.Row([
                             ft.Container(
                                 content=ft.Row([
-                                    ft.Icon(icon=ICONS.FOLDER_OPEN, size=16, color="#1565C0"),
+                                    ft.Icon(icon=get_icon("FOLDER_OPEN"), size=16, color="#1565C0"),
                                     ft.Text(
                                         f"[{v['client']}] {v_name} ({rate_flt}%)",
                                         size=13, weight=ft.FontWeight.BOLD,
@@ -1066,7 +1105,7 @@ def main(page: ft.Page):
                                 ),
                                 ft.Container(
                                     content=ft.Row([
-                                        ft.Icon(icon=ICONS.DESCRIPTION, color="#FFFFFF", size=12),
+                                        ft.Icon(icon=get_icon("DESCRIPTION"), color="#FFFFFF", size=12),
                                         ft.Text("검수서류", color="#FFFFFF", size=11, weight=ft.FontWeight.BOLD)
                                     ], spacing=3),
                                     bgcolor="#1565C0",
@@ -1123,7 +1162,7 @@ def main(page: ft.Page):
     # ==========================================
     content_area = ft.Container(expand=True, padding=pad(12, 8, 12, 4))
 
-    def make_nav_item(idx, icon_name, label_text):
+    def make_nav_item(idx, icon_key, label_text):
         is_active = (active_tab[0] == idx)
         active_color = "#1565C0" if is_active else "#757575"
         bg_pill = "#E3F2FD" if is_active else "transparent"
@@ -1131,7 +1170,7 @@ def main(page: ft.Page):
             content=ft.Column(
                 controls=[
                     ft.Container(
-                        content=ft.Icon(icon=icon_name, size=22, color=active_color),
+                        content=ft.Icon(icon=get_icon(icon_key), size=22, color=active_color),
                         bgcolor=bg_pill,
                         padding=pad(14, 3, 14, 3),
                         border_radius=14
@@ -1156,35 +1195,47 @@ def main(page: ft.Page):
     bottom_nav_bar = ft.Container(
         content=ft.Row([], alignment=ft.MainAxisAlignment.SPACE_AROUND),
         bgcolor="#FFFFFF",
-        height=78,
-        padding=pad(4, 6, 4, 18),
+        height=82,
+        padding=pad(4, 6, 4, 22),
         border=safe_border_top(1, "#E0E0E0")
     )
 
     def update_bottom_bar():
         bottom_nav_bar.content = ft.Row([
-            make_nav_item(0, ICONS.QR_CODE_SCANNER, "검수"),
-            make_nav_item(1, ICONS.LIST_ALT, "목록"),
-            make_nav_item(2, ICONS.HISTORY, "내역"),
-            make_nav_item(3, ICONS.ANALYTICS, "집계"),
+            make_nav_item(0, "QR_CODE_SCANNER", "검수"),
+            make_nav_item(1, "LIST_ALT", "목록"),
+            make_nav_item(2, "HISTORY", "내역"),
+            make_nav_item(3, "ANALYTICS", "집계"),
         ], alignment=ft.MainAxisAlignment.SPACE_AROUND)
 
     def switch_tab(index):
-        active_tab[0] = index
-        update_bottom_bar()
-        if index == 0:
-            content_area.content = build_inspect_view()
-            update_recent_list()
-        elif index == 1:
-            content_area.content = build_list_view()
-            render_book_list()
-        elif index == 2:
-            content_area.content = build_history_view()
-            render_history_list()
-        elif index == 3:
-            content_area.content = build_summary_view()
-            render_summary_view()
-        page.update()
+        try:
+            active_tab[0] = index
+            update_bottom_bar()
+            if index == 0:
+                content_area.content = build_inspect_view()
+                update_recent_list()
+            elif index == 1:
+                content_area.content = build_list_view()
+                render_book_list()
+            elif index == 2:
+                content_area.content = build_history_view()
+                render_history_list()
+            elif index == 3:
+                content_area.content = build_summary_view()
+                render_summary_view()
+            page.update()
+        except Exception as ex:
+            err_trace = traceback.format_exc()
+            content_area.content = ft.Container(
+                content=ft.Column([
+                    ft.Text("⚠️ 화면 표시 중 오류가 발생했습니다.", color="#C62828", size=15, weight=ft.FontWeight.BOLD),
+                    ft.Text(str(ex), color="#333333", size=13),
+                    ft.Text(err_trace, size=10, color="#666666")
+                ], scroll=ft.ScrollMode.AUTO),
+                padding=15
+            )
+            page.update()
 
     def manual_sync(e):
         comp_id = current_user["info"].get("company_id", "ALL")
@@ -1197,43 +1248,62 @@ def main(page: ft.Page):
         switch_tab(active_tab[0])
 
     def show_main_screen():
-        page.controls.clear()
-        u = current_user["info"]
-        user_label.value = f"{u.get('user_name', '')} [{u.get('company_id', '')}]"
+        try:
+            page.controls.clear()
+            u = current_user["info"]
+            user_label.value = f"{u.get('user_name', '')} [{u.get('company_id', '')}]"
 
-        page.appbar = ft.AppBar(
-            title=ft.Text(f"Optibook-IMS ({CURRENT_APP_VERSION})", size=16, weight=ft.FontWeight.BOLD),
-            bgcolor="#1565C0",
-            color="#FFFFFF",
-            actions=[
-                ft.Row([
-                    user_label,
-                    network_icon,
-                    ft.IconButton(
-                        icon=ICONS.REFRESH,
-                        icon_color="#FFFFFF",
-                        tooltip="서버 동기화",
-                        on_click=manual_sync
+            page.appbar = ft.AppBar(
+                title=ft.Text(f"Optibook-IMS ({CURRENT_APP_VERSION})", size=15, weight=ft.FontWeight.BOLD),
+                bgcolor="#1565C0",
+                color="#FFFFFF",
+                actions=[
+                    ft.Container(
+                        content=ft.Row([
+                            user_label,
+                            network_icon,
+                            ft.IconButton(
+                                icon=get_icon("REFRESH"),
+                                icon_color="#FFFFFF",
+                                tooltip="서버 동기화",
+                                on_click=manual_sync
+                            )
+                        ], spacing=4, tight=True),
+                        padding=pad(0, 0, 6, 0)
                     )
-                ], spacing=4)
-            ]
-        )
-
-        page.add(
-            ft.SafeArea(
-                top=True,
-                bottom=True,
-                minimum_padding=pad(0, 0, 0, 8),
-                content=ft.Column([
-                    content_area,
-                    bottom_nav_bar
-                ], expand=True, spacing=0),
-                expand=True
+                ]
             )
-        )
-        switch_tab(0)
 
-        threading.Thread(target=run_version_check, daemon=True).start()
+            # 핵심 수정: minimum_padding 제거하여 SafeArea 버전 충돌 원천 차단
+            page.add(
+                ft.SafeArea(
+                    content=ft.Column([
+                        content_area,
+                        bottom_nav_bar
+                    ], expand=True, spacing=0),
+                    expand=True
+                )
+            )
+            switch_tab(0)
+
+            threading.Thread(target=run_version_check, daemon=True).start()
+        except Exception as ex:
+            err_trace = traceback.format_exc()
+            page.controls.clear()
+            page.add(
+                ft.SafeArea(
+                    content=ft.Container(
+                        content=ft.Column([
+                            ft.Text("🚨 메인 화면 초기화 오류", size=16, weight=ft.FontWeight.BOLD, color="#C62828"),
+                            ft.Text(str(ex), size=13, color="#000000"),
+                            ft.Text(err_trace, size=10, color="#555555")
+                        ], scroll=ft.ScrollMode.AUTO),
+                        padding=20
+                    ),
+                    expand=True
+                )
+            )
+            page.update()
 
     # ==========================================
     # 로그인 화면
@@ -1261,16 +1331,21 @@ def main(page: ft.Page):
         error_msg.value = ""
         page.update()
 
-        success, user_info, is_online = authenticate(uid, pw)
-        if success:
-            save_login_state(uid, pw, bool(remember_chk.value))
-            current_user["info"] = user_info
-            db_ready = db_service.load_database(user_info.get("company_id", "ALL"))
-            update_network_badge(db_ready)
-            show_main_screen()
-        else:
+        try:
+            success, user_info, is_online = authenticate(uid, pw)
+            if success:
+                save_login_state(uid, pw, bool(remember_chk.value))
+                current_user["info"] = user_info
+                db_ready = db_service.load_database(user_info.get("company_id", "ALL"))
+                update_network_badge(db_ready)
+                show_main_screen()
+            else:
+                login_btn_text.value = "로그인"
+                error_msg.value = "계정 정보가 올바르지 않거나 미승인 계정입니다."
+                page.update()
+        except Exception as ex:
             login_btn_text.value = "로그인"
-            error_msg.value = "계정 정보가 올바르지 않거나 미승인 계정입니다."
+            error_msg.value = f"오류: {ex}"
             page.update()
 
     login_btn = ft.Container(
@@ -1295,7 +1370,7 @@ def main(page: ft.Page):
             content=ft.Container(
                 content=ft.Column([
                     ft.Container(height=15),
-                    ft.Icon(icon=ICONS.MENU_BOOK, size=60, color="#1565C0"),
+                    ft.Icon(icon=get_icon("MENU_BOOK"), size=60, color="#1565C0"),
                     ft.Text("Optibook-IMS Mobile", size=22, weight=ft.FontWeight.BOLD, color="#1565C0"),
                     ft.Text(f"Version {CURRENT_APP_VERSION}", size=12, color="#757575"),
                     ft.Container(height=8),
