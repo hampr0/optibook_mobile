@@ -7,12 +7,50 @@ from db_manager import db_service, make_row_key, safe_int, format_seq_chunk_labe
 from auth_manager import load_saved_login, save_login_state, authenticate
 from update_manager import CURRENT_APP_VERSION, check_for_updates, open_download_link
 
+# Flet 모바일 버전 호환 상수 및 헬퍼
 ICONS = getattr(ft, "Icons", getattr(ft, "icons", None))
+TEXT_OVERFLOW_ELLIPSIS = getattr(getattr(ft, "TextOverflow", None), "ELLIPSIS", "ellipsis")
 
 def pad(left=0, top=0, right=0, bottom=0):
     if hasattr(ft, "padding") and hasattr(ft.padding, "only"):
         return ft.padding.only(left=left, top=top, right=right, bottom=bottom)
     return ft.Padding(left, top, right, bottom)
+
+def safe_border_all(width: float = 1.0, color: str = "#E0E0E0"):
+    """모바일 환경에서 ft.border.all 부재로 인한 크래시 방지 테두리 생성기"""
+    try:
+        border_cls = getattr(ft, "Border", getattr(getattr(ft, "border", None), "Border", None))
+        side_cls = getattr(ft, "BorderSide", getattr(getattr(ft, "border", None), "BorderSide", None))
+        if border_cls and side_cls:
+            side = side_cls(width=width, color=color)
+            return border_cls(top=side, right=side, bottom=side, left=side)
+    except Exception:
+        pass
+    try:
+        if hasattr(ft, "border") and hasattr(ft.border, "all") and callable(ft.border.all):
+            return ft.border.all(width, color)
+    except Exception:
+        pass
+    return None
+
+def safe_border_top(width: float = 1.0, color: str = "#E0E0E0"):
+    """하단 내비게이션 바 상단 구분선 생성기"""
+    try:
+        border_cls = getattr(ft, "Border", getattr(getattr(ft, "border", None), "Border", None))
+        side_cls = getattr(ft, "BorderSide", getattr(getattr(ft, "border", None), "BorderSide", None))
+        if border_cls and side_cls:
+            side = side_cls(width=width, color=color)
+            return border_cls(top=side)
+    except Exception:
+        pass
+    try:
+        if hasattr(ft, "border") and hasattr(ft.border, "only") and callable(ft.border.only):
+            side_cls = getattr(ft, "BorderSide", getattr(getattr(ft, "border", None), "BorderSide", None))
+            if side_cls:
+                return ft.border.only(top=side_cls(width=width, color=color))
+    except Exception:
+        pass
+    return None
 
 def main(page: ft.Page):
     page.title = "Optibook-IMS Mobile"
@@ -211,7 +249,7 @@ def main(page: ft.Page):
             threading.Thread(target=reset_btn, daemon=True).start()
 
     # ==========================================
-    # 탭 1: 현장 검수 화면 (납품처 + 1,000권 구간 필터 + 입고 취소)
+    # 탭 1: 현장 검수 화면
     # ==========================================
     inspect_vendor_filter = ft.Dropdown(label="작업 납품처", expand=True, value="전체")
     inspect_range_filter = ft.Dropdown(label="순번 구간(1000권)", width=145, value="전체 구간")
@@ -236,7 +274,7 @@ def main(page: ft.Page):
         padding=12,
         bgcolor="#FFFFFF",
         border_radius=10,
-        border=ft.border.all(1.5, "#E0E0E0")
+        border=safe_border_all(1.5, "#E0E0E0")
     )
 
     recent_list_view = ft.ListView(expand=True, spacing=6)
@@ -267,7 +305,7 @@ def main(page: ft.Page):
             scan_result_info.value = f"순번 #{updated_row.get('순번', '')} | 상태가 '미입고'로 되돌려졌습니다."
             scan_badge.bgcolor = "#616161"
             scan_badge_text.value = "입고 취소 완료"
-            scan_card_container.border = ft.border.all(1.5, "#757575")
+            scan_card_container.border = safe_border_all(1.5, "#757575")
             refresh_inspect_progress()
             update_recent_list()
             show_snack(f"입고 취소 완료: {updated_row.get('도서명', '')[:15]}", "#616161")
@@ -285,7 +323,7 @@ def main(page: ft.Page):
                         ft.Column([
                             ft.Text(
                                 f"#{book.get('순번', eff_s)} {book.get('도서명', '')}",
-                                size=13, weight=ft.FontWeight.BOLD, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS
+                                size=13, weight=ft.FontWeight.BOLD, max_lines=1, overflow=TEXT_OVERFLOW_ELLIPSIS
                             ),
                             ft.Text(
                                 f"[{book.get('납품처', '')} · {chunk_lbl}구간] {book.get('ISBN_Clean', '')} | {book.get('입고일시', '')[11:]}",
@@ -304,7 +342,7 @@ def main(page: ft.Page):
                     padding=10,
                     bgcolor="#FFFFFF",
                     border_radius=8,
-                    border=ft.border.all(1, "#EEEEEE")
+                    border=safe_border_all(1, "#EEEEEE")
                 )
             )
 
@@ -335,7 +373,7 @@ def main(page: ft.Page):
             )
             scan_badge.bgcolor = "#2E7D32"
             scan_badge_text.value = f"✅ 입고 완료 ({c_lbl})"
-            scan_card_container.border = ft.border.all(2, "#2E7D32")
+            scan_card_container.border = safe_border_all(2, "#2E7D32")
             refresh_inspect_progress()
             update_recent_list()
         elif status == "ALREADY_IN":
@@ -344,31 +382,31 @@ def main(page: ft.Page):
             scan_result_info.value = f"[{book.get('납품처', '')} · {c_lbl}구간] 해당 도서는 이미 입고 완료되었습니다."
             scan_badge.bgcolor = "#F57C00"
             scan_badge_text.value = "⚠️ 기입고 도서"
-            scan_card_container.border = ft.border.all(2, "#F57C00")
+            scan_card_container.border = safe_border_all(2, "#F57C00")
         elif status == "WRONG_RANGE":
             scan_result_title.value = f"🚨 다른 순번 구간 도서입니다! (#{book.get('seq', '')})"
             scan_result_info.value = f"현재 설정 구간: [{target_range}] ≠ 실제 도서 구간: [{book.get('target_range', '')}]"
             scan_badge.bgcolor = "#1565C0"
             scan_badge_text.value = f"구간 불일치 ({book.get('target_range', '')})"
-            scan_card_container.border = ft.border.all(2, "#1565C0")
+            scan_card_container.border = safe_border_all(2, "#1565C0")
         elif status == "WRONG_VENDOR":
             scan_result_title.value = "🚨 다른 납품처 도서입니다!"
             scan_result_info.value = f"현재 고정: [{target_vendor}] ≠ 실제 소속: [{book.get('target', '')}]"
             scan_badge.bgcolor = "#D32F2F"
             scan_badge_text.value = "납품처 불일치"
-            scan_card_container.border = ft.border.all(2, "#D32F2F")
+            scan_card_container.border = safe_border_all(2, "#D32F2F")
         elif status == "MULTIPLE_SUFFIX":
             scan_result_title.value = f"끝자리 [{book.get('query', '')}] 중복 ({book.get('count', 0)}종)"
             scan_result_info.value = "동일한 끝자리 도서가 여러 권 있습니다. 전체 바코드를 스캔해 주세요."
             scan_badge.bgcolor = "#1565C0"
             scan_badge_text.value = "전체 바코드 필요"
-            scan_card_container.border = ft.border.all(2, "#1565C0")
+            scan_card_container.border = safe_border_all(2, "#1565C0")
         else:
             scan_result_title.value = "❌ 미등록 도서 (바코드 불일치)"
             scan_result_info.value = f"입력된 번호: {isbn}"
             scan_badge.bgcolor = "#C62828"
             scan_badge_text.value = "스캔 실패"
-            scan_card_container.border = ft.border.all(2, "#C62828")
+            scan_card_container.border = safe_border_all(2, "#C62828")
 
         try:
             barcode_field.focus()
@@ -431,7 +469,7 @@ def main(page: ft.Page):
         ], expand=True, spacing=8)
 
     # ==========================================
-    # 탭 2: 도서 목록 화면 (1,000권 구간 필터 + 구간 입고율 배지)
+    # 탭 2: 도서 목록 화면
     # ==========================================
     list_search_field = ft.TextField(
         label="도서명 / ISBN / 순번 검색",
@@ -528,7 +566,6 @@ def main(page: ft.Page):
         if refresh_data:
             current_filtered_books = db_service.get_filtered_books(v, s, q, r)
 
-        # 선택된 구간(1~1000, 1001~2000 등)의 입고율 표시 업데이트
         prog = db_service.get_vendor_progress(v, r)
         r_title = f"[{r}번 구간]" if r != "전체 구간" else "[전체 구간]"
         list_chunk_rate_text.value = (
@@ -580,7 +617,7 @@ def main(page: ft.Page):
                                 ft.Text(
                                     f"{seq_display} {b.get('도서명', '')}",
                                     size=13, weight=ft.FontWeight.BOLD, expand=True,
-                                    max_lines=1, overflow=ft.TextOverflow.ELLIPSIS
+                                    max_lines=1, overflow=TEXT_OVERFLOW_ELLIPSIS
                                 ),
                                 ft.Container(
                                     content=ft.Text(
@@ -596,7 +633,7 @@ def main(page: ft.Page):
                             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                             ft.Text(
                                 f"[{b.get('납품처', '')} · {chunk_tag}구간] {b.get('저자', '')} | {b.get('출판사', '')}",
-                                size=11, color="#666666", max_lines=1, overflow=ft.TextOverflow.ELLIPSIS
+                                size=11, color="#666666", max_lines=1, overflow=TEXT_OVERFLOW_ELLIPSIS
                             ),
                             ft.Text(
                                 f"ISBN: {isbn} | 정가: {safe_int(b.get('정가', 0)):,}원 | {b.get('권수', '1')}권",
@@ -607,7 +644,7 @@ def main(page: ft.Page):
                     padding=8,
                     bgcolor="#FFFFFF",
                     border_radius=8,
-                    border=ft.border.all(1, "#E8EEF5")
+                    border=safe_border_all(1, "#E8EEF5")
                 )
             )
 
@@ -723,7 +760,7 @@ def main(page: ft.Page):
                                 ft.Text(
                                     f"#{idx} (순번:{b.get('순번', '-')}) {b.get('도서명', '')}",
                                     size=13, weight=ft.FontWeight.BOLD, expand=True,
-                                    max_lines=1, overflow=ft.TextOverflow.ELLIPSIS
+                                    max_lines=1, overflow=TEXT_OVERFLOW_ELLIPSIS
                                 ),
                                 ft.Container(
                                     content=ft.Text(
@@ -747,7 +784,7 @@ def main(page: ft.Page):
                         padding=10,
                         bgcolor="#FFFFFF",
                         border_radius=8,
-                        border=ft.border.all(1, "#EEEEEE")
+                        border=safe_border_all(1, "#EEEEEE")
                     )
                 )
         page.update()
@@ -791,7 +828,7 @@ def main(page: ft.Page):
         ], expand=True, spacing=8)
 
     # ==========================================
-    # 탭 4: 집계 화면 (1,000권 단위 구간별 입고율 대시보드 + 납품처별 현황)
+    # 탭 4: 집계 화면 (구간별 입고율 대시보드 + 납품처별 현황)
     # ==========================================
     def navigate_to_filtered_list(vendor="전체", status="전체", seq_range="전체 구간"):
         selected_row_keys.clear()
@@ -830,7 +867,7 @@ def main(page: ft.Page):
 
         summary_scroll_view.controls.clear()
 
-        # 1. 전체 납품 총괄 카드
+        # 전체 납품 총괄 카드
         summary_scroll_view.controls.append(
             ft.Container(
                 content=ft.Column([
@@ -881,7 +918,7 @@ def main(page: ft.Page):
             )
         )
 
-        # 2. 전체 순번 기준 1,000권 단위 구간별 입고율 섹션
+        # 1,000권 단위 순번 구간별 입고율 섹션
         summary_scroll_view.controls.append(
             ft.Container(
                 content=ft.Column([
@@ -985,11 +1022,11 @@ def main(page: ft.Page):
                         padding=11,
                         bgcolor="#FFFFFF",
                         border_radius=8,
-                        border=ft.border.all(1.5, "#BBDEFB" if not is_done else "#A5D6A7")
+                        border=safe_border_all(1.5, "#BBDEFB" if not is_done else "#A5D6A7")
                     )
                 )
 
-        # 3. 납품처별 상세 집계 섹션
+        # 납품처별 전체 현황 섹션
         summary_scroll_view.controls.append(
             ft.Container(
                 content=ft.Text("납품처별 전체 현황", size=14, weight=ft.FontWeight.BOLD, color="#1565C0"),
@@ -1011,7 +1048,7 @@ def main(page: ft.Page):
                                     ft.Text(
                                         f"[{v['client']}] {v_name} ({rate_flt}%)",
                                         size=13, weight=ft.FontWeight.BOLD,
-                                        max_lines=1, overflow=ft.TextOverflow.ELLIPSIS
+                                        max_lines=1, overflow=TEXT_OVERFLOW_ELLIPSIS
                                     ),
                                 ], spacing=4),
                                 expand=True,
@@ -1071,7 +1108,7 @@ def main(page: ft.Page):
                     padding=12,
                     bgcolor="#FFFFFF",
                     border_radius=8,
-                    border=ft.border.all(1, "#E8EEF5")
+                    border=safe_border_all(1, "#E8EEF5")
                 )
             )
         page.update()
@@ -1082,7 +1119,7 @@ def main(page: ft.Page):
         ], expand=True, spacing=0)
 
     # ==========================================
-    # 스마트폰 하단 시스템 바 겹침 원천 차단 네비게이션 바
+    # 스마트폰 하단 시스템 바 겹침 차단 내비게이션 바
     # ==========================================
     content_area = ft.Container(expand=True, padding=pad(12, 8, 12, 4))
 
@@ -1121,7 +1158,7 @@ def main(page: ft.Page):
         bgcolor="#FFFFFF",
         height=78,
         padding=pad(4, 6, 4, 18),
-        border=ft.border.only(top=ft.BorderSide(1, "#E0E0E0"))
+        border=safe_border_top(1, "#E0E0E0")
     )
 
     def update_bottom_bar():
